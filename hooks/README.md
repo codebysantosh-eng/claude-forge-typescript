@@ -37,8 +37,18 @@ PreToolUse (before action)          PostToolUse (after action)       Stop (end o
 | 0 | Continue |
 | 2 | Block (PreToolUse only) |
 
+## Testing
+
+Run the hook integration test suite to verify hooks work correctly:
+
+```bash
+./hooks/tests/run-tests.sh
+```
+
+21 tests covering: secret blocking, force-push prevention, NEXT_PUBLIC_ guard, console.log warnings, config guards, and file size warnings.
+
 ## Installation
 
-The `install.sh` script auto-merges hooks into your `.claude/settings.json` (requires `jq`).
+The `install.sh` script deep-merges hooks into your `.claude/settings.json` (requires `jq`). Existing custom hooks are preserved.
 
 Manual: merge `hooks.json` into your project's `.claude/settings.json` under the `hooks` key.

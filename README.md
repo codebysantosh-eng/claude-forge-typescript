@@ -2,7 +2,7 @@
 
 The complete Claude Code development system for TypeScript, React, and Next.js projects.
 
-8 agents, 13 commands, 10 hooks, 5 skills, 5 rules — wired together with handoffs. Built for: **TypeScript, React, Next.js (App Router), Prisma, Tailwind, Vitest/Jest, Playwright.**
+8 agents, 14 commands, 10 hooks, 6 skills, 5 rules — wired together with handoffs. Built for: **TypeScript, React, Next.js (App Router), Prisma, Tailwind, Vitest/Jest, Playwright.**
 
 ## Agents
 
@@ -33,6 +33,7 @@ The complete Claude Code development system for TypeScript, React, and Next.js p
 | `/add-tests` | Retroactively add missing test coverage | *(direct)* |
 | `/learn` | Extract reusable patterns from current session | *(direct)* |
 | `/healthcheck` | Build + types + lint + format + tests + secrets scan | *(direct)* |
+| `/incident` | Production incident response — triage, diagnose, mitigate | *(direct)* |
 | `/pre-deploy` | Deployment readiness checklist | *(direct)* |
 
 ## How It Flows
@@ -77,6 +78,8 @@ flowchart TD
     end
 
     Ship --> Done([Ready to Deploy])
+    Done -->|Incident| INC["/incident\n(triage → diagnose → mitigate)"]
+    INC -->|Post-mortem| Build
 
     Learn["/learn — extract patterns after solving non-trivial problems"]
 
@@ -85,7 +88,7 @@ flowchart TD
     style Ship fill:#1a1a2e,stroke:#4ecdc4,color:#fff
 ```
 
-Not every task needs all phases. A bug fix skips THINK. A library evaluation skips BUILD. **You decide which tools to reach for.**
+Not every task needs all phases. A bug fix skips THINK. A library evaluation skips BUILD. A production incident starts at `/incident`. **You decide which tools to reach for.**
 
 ## Hooks (Automated Safety)
 
@@ -109,8 +112,9 @@ Not every task needs all phases. A bug fix skips THINK. A library evaluation ski
 | `nextjs-app-router` | code-inspector, performance-profiler — Server/Client components, Server Actions, caching |
 | `prisma-patterns` | architect, tdd-developer — schema, migrations, serverless pooling |
 | `tdd-patterns` | tdd-developer, e2e-runner — test examples, mocking, factories, CI |
-| `security-checklist` | security-scanner — 13 categories with verification commands |
+| `security-checklist` | security-scanner — 15 categories with verification commands |
 | `coding-standards` | code-inspector — naming, immutability, async, React, API, smells |
+| `observability` | architect, performance-profiler — structured logging, tracing, metrics, alerting |
 
 ## Rules (Always On)
 
@@ -137,6 +141,10 @@ A real feature implementation from start to finish:
 7. /profile          → Profile performance if needed
 8. /healthcheck      → Final verification (build + types + lint + tests)
 9. /pre-deploy       → Deployment readiness checklist
+
+# Post-deployment
+10. /incident        → If something breaks in production
+
 ```
 
 Not every task needs all steps. A bug fix: `/tdd` → `/inspect` → `/healthcheck`. A config change: just edit and `/healthcheck`.

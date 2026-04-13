@@ -2,14 +2,15 @@
 
 ## Project Overview
 
-A complete Claude Code development system for TypeScript, React, and Next.js projects — 8 agents, 13 commands, 10 hooks, 5 skills, and 5 rules covering the full lifecycle from research to deployment.
+A complete Claude Code development system for TypeScript, React, and Next.js projects — 8 agents, 14 commands, 10 hooks, 6 skills, and 5 rules covering the full lifecycle from research to production incident response.
 
 ## Structure
 
 - `agents/` — 8 specialized agents (markdown with YAML frontmatter), each with "When to Engage" and "When NOT to Engage" sections
-- `commands/` — 13 slash commands (markdown with description frontmatter)
-- `hooks/` — 10 safety hooks (JSON) + documentation
-- `skills/` — 5 deep reference patterns for agents to pull from
+- `commands/` — 14 slash commands (markdown with description frontmatter)
+- `hooks/` — 10 safety hooks (JSON) + documentation + test suite (`hooks/tests/`)
+- `skills/` — 6 deep reference patterns for agents to pull from
+- `.github/workflows/ci.yml` — CI pipeline template (maps to `/healthcheck`)
 - `rules/` — 5 always-on guardrails
 - `install.sh` — Idempotent installer (symlink or copy mode)
 - `uninstall.sh` — Clean removal of all forge components
@@ -30,6 +31,7 @@ A complete Claude Code development system for TypeScript, React, and Next.js pro
 | *(none)* | `/add-tests` | Retroactive test coverage |
 | *(none)* | `/learn` | Extract patterns |
 | *(none)* | `/healthcheck` | Verification suite |
+| *(none)* | `/incident` | Production incident response |
 | *(none)* | `/pre-deploy` | Deploy readiness |
 
 ## Conventions

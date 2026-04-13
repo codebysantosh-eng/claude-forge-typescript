@@ -211,6 +211,8 @@ logger.info({ userId, action: "checkout", orderId }, "Order placed");
 
 **Recommended stack**: OpenTelemetry (tracing) + Pino (logging) + Prometheus/Grafana or Vercel Analytics (metrics).
 
+See `skills/observability/SKILL.md` for full patterns: structured logging, request correlation, distributed tracing, metrics, alerting, and error tracking.
+
 ## Worked Example: Stripe Subscriptions
 
 ```markdown
@@ -290,3 +292,4 @@ Before presenting, verify:
 → **tdd-developer** to implement the approved plan
 → **error-resolver** if builds break during implementation
 → **e2e-runner** for critical user flow tests identified in the plan
+→ **/incident** if the deployed feature causes a production issue

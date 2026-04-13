@@ -313,3 +313,7 @@ const prisma = new PrismaClient({
 ← **code-inspector** identifies potential performance issues
 → **code-inspector** to verify optimization didn't introduce bugs
 → **tdd-developer** to add performance regression tests
+
+## Reference
+
+See `skills/observability/SKILL.md` for production monitoring: structured logging, request correlation, metrics, and alerting patterns.
