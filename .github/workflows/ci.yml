@@ -1,8 +1,5 @@
-# Claude Forge — CI Pipeline
-# Maps to /healthcheck: types → build → lint → format → tests → secrets → audit
-#
-# Copy this to your project's .github/workflows/ci.yml and adjust as needed.
-# Covers: TypeScript, Next.js, Prisma, Vitest/Jest, Playwright
+# Claude Forge — Kit Validation
+# Runs on this repo to verify hooks, scripts, and file structure are correct.
 
 name: CI
 
@@ -12,138 +9,69 @@ on:
   pull_request:
     branches: [main]
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
-
-env:
-  NODE_VERSION: "20"
-
 jobs:
-  # ─── Step 1-4: Type check, build, lint, format ───
-  quality:
-    name: Quality Gates
+  validate:
+    name: Validate Kit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4 — pinned to SHA
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4
 
-      - run: npm ci
-
-      # Prisma: generate client if schema exists
-      - name: Generate Prisma client
-        run: npx prisma generate 2>/dev/null || true
-
-      # Step 1: Type check
-      - name: Type check
-        run: npx tsc --noEmit
-
-      # Step 2: Build
-      - name: Build
-        run: npm run build
-
-      # Step 3: Lint
-      - name: Lint
-        run: npm run lint
-
-      # Step 4: Format check
-      - name: Format check
-        run: npx prettier --check . 2>/dev/null || echo "Prettier not configured — skipping"
-
-  # ─── Step 5: Unit & integration tests ───
-  test:
-    name: Tests
-    runs-on: ubuntu-latest
-    needs: quality
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-
-      - run: npm ci
-      - run: npx prisma generate 2>/dev/null || true
-
-      # Run tests with coverage
-      - name: Run tests
-        run: npm test -- --coverage 2>/dev/null || npm test
-
-      # Upload coverage (optional — uncomment if using Codecov)
-      # - uses: codecov/codecov-action@v4
-      #   with:
-      #     token: ${{ secrets.CODECOV_TOKEN }}
-
-  # ─── Step 6-7: Security checks ───
-  security:
-    name: Security
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-
-      # Step 6: Secrets scan
-      - name: Scan for hardcoded secrets
+      - name: Verify required files exist
         run: |
-          FOUND=0
-          # Hardcoded secrets pattern
-          if grep -rn '\b\(api[_-]\?key\|secret[_-]\?key\|password\|credentials\|private[_-]\?key\|client[_-]\?secret\)\b\s*[:=]\s*["'"'"'`][^"'"'"'`\s]\{8,\}' \
-            --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
-            src/ lib/ app/ 2>/dev/null; then
-            echo "::error::Possible hardcoded secrets found"
-            FOUND=1
-          fi
-          # Known secret prefixes
-          if grep -rn 'sk_live_\|ghp_\|gho_\|github_pat_\|xoxb-\|xoxp-\|AKIA[0-9A-Z]\{16\}' \
-            --include="*.ts" --include="*.tsx" --include="*.js" --include="*.jsx" \
-            src/ lib/ app/ 2>/dev/null; then
-            echo "::error::Known secret prefix found in source code"
-            FOUND=1
-          fi
-          # NEXT_PUBLIC_ on server secrets
-          if grep -rn 'NEXT_PUBLIC_.*\(SECRET\|PASSWORD\|PRIVATE_KEY\|TOKEN\|CREDENTIAL\)' \
-            --include="*.ts" --include="*.tsx" --include="*.env*" \
-            src/ lib/ app/ 2>/dev/null; then
-            echo "::error::NEXT_PUBLIC_ prefix on server secret"
-            FOUND=1
-          fi
-          if [ "$FOUND" -eq 1 ]; then exit 1; fi
-          echo "No secrets found"
+          MISSING=0
+          for f in CLAUDE.md README.md install.sh uninstall.sh hooks/hooks.json hooks/README.md; do
+            if [ ! -f "$f" ]; then
+              echo "::error::Missing required file: $f"
+              MISSING=1
+            fi
+          done
+          if [ "$MISSING" -eq 1 ]; then exit 1; fi
+          echo "All required files present"
 
-      # Step 7: Dependency audit
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: "npm"
-      - run: npm ci
-      - name: Audit dependencies
-        run: npm audit --production --audit-level=critical
+      - name: Verify all agents have frontmatter
+        run: |
+          FAIL=0
+          for f in agents/*.md; do
+            if ! head -1 "$f" | grep -q '^---'; then
+              echo "::error::Missing YAML frontmatter: $f"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then exit 1; fi
+          echo "All agents have frontmatter"
 
-  # ─── E2E tests (optional — uncomment when Playwright is set up) ───
-  # e2e:
-  #   name: E2E Tests
-  #   runs-on: ubuntu-latest
-  #   needs: [quality, test]
-  #   steps:
-  #     - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-  #     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
-  #       with:
-  #         node-version: ${{ env.NODE_VERSION }}
-  #         cache: "npm"
-  #     - run: npm ci
-  #     - run: npx prisma generate 2>/dev/null || true
-  #     - run: npx playwright install --with-deps chromium
-  #     - name: Build and start
-  #       run: npm run build && npm start &
-  #     - name: Wait for server
-  #       run: npx wait-on http://localhost:3000 --timeout 60000
-  #     - name: Run E2E tests
-  #       run: npx playwright test
-  #     - uses: actions/upload-artifact@v4
-  #       if: failure()
-  #       with:
-  #         name: playwright-report
-  #         path: playwright-report/
-  #         retention-days: 7
+      - name: Verify all commands have frontmatter
+        run: |
+          FAIL=0
+          for f in commands/*.md; do
+            if ! head -1 "$f" | grep -q '^---'; then
+              echo "::error::Missing frontmatter: $f"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then exit 1; fi
+          echo "All commands have frontmatter"
+
+      - name: Verify hooks.json is valid JSON
+        run: jq empty hooks/hooks.json && echo "hooks.json is valid JSON"
+
+      - name: Run hook integration tests
+        run: ./hooks/tests/run-tests.sh
+
+      - name: Verify scripts are executable
+        run: |
+          for f in install.sh uninstall.sh hooks/tests/run-tests.sh; do
+            if [ ! -x "$f" ]; then
+              echo "::error::Not executable: $f"
+              exit 1
+            fi
+          done
+          echo "All scripts are executable"
+
+      - name: Count inventory
+        run: |
+          echo "Agents:   $(ls agents/*.md | wc -l | tr -d ' ')"
+          echo "Commands: $(ls commands/*.md | wc -l | tr -d ' ')"
+          echo "Skills:   $(ls -d skills/*/ | wc -l | tr -d ' ')"
+          echo "Rules:    $(ls rules/*.md | wc -l | tr -d ' ')"
+          echo "Hooks:    $(jq '[.hooks | to_entries[] | .value | length] | add' hooks/hooks.json)"

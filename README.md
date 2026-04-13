@@ -171,6 +171,9 @@ cd claude-forge-typescript
 # Uninstall
 ./uninstall.sh              # global
 ./uninstall.sh --project /path/to/your-project
+
+# Copy CI template to your project
+cp templates/ci.yml /path/to/your-project/.github/workflows/ci.yml
 ```
 
 ## Philosophy
