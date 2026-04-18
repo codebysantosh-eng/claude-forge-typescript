@@ -19,7 +19,7 @@ jobs:
       - name: Verify required files exist
         run: |
           MISSING=0
-          for f in CLAUDE.md README.md install.sh uninstall.sh hooks/hooks.json hooks/README.md; do
+          for f in CLAUDE.md README.md install.sh uninstall.sh hooks/hooks.json hooks/hooks.json hooks/build.js hooks/README.md; do
             if [ ! -f "$f" ]; then
               echo "::error::Missing required file: $f"
               MISSING=1
@@ -55,8 +55,57 @@ jobs:
       - name: Verify hooks.json is valid JSON
         run: jq empty hooks/hooks.json && echo "hooks.json is valid JSON"
 
+      - name: Verify hooks.json is in sync with scripts
+        run: |
+          cp hooks/hooks.json hooks/hooks.json.bak
+          node hooks/build.js
+          if ! diff -q hooks/hooks.json hooks/hooks.json.bak > /dev/null 2>&1; then
+            echo "::error::hooks.json is out of sync with hooks/scripts/. Run 'node hooks/build.js' and commit the result."
+            diff hooks/hooks.json.bak hooks/hooks.json || true
+            rm hooks/hooks.json.bak
+            exit 1
+          fi
+          rm hooks/hooks.json.bak
+          echo "hooks.json is in sync with scripts"
+
+      - name: Verify every hook has a script file
+        run: |
+          FAIL=0
+          for id in $(jq -r '.hooks | to_entries[] | .value[] | .id' hooks/hooks.json); do
+            if [ ! -f "hooks/scripts/${id}.js" ]; then
+              echo "::error::Missing script for hook '${id}': hooks/scripts/${id}.js"
+              FAIL=1
+            fi
+          done
+          if [ "$FAIL" -eq 1 ]; then exit 1; fi
+          echo "All hooks have corresponding script files"
+
       - name: Run hook integration tests
         run: ./hooks/tests/run-tests.sh
+
+      - name: Validate agent-command mapping
+        run: |
+          FAIL=0
+          # Parse CLAUDE.md agent-command table — skip header, separator, and *(none)* rows
+          while IFS='|' read -r _ agent cmd _rest; do
+            agent=$(echo "$agent" | tr -d ' ')
+            cmd=$(echo "$cmd" | tr -d ' `/\\')
+            # Skip empty, header, separator, and agent-less rows
+            [ -z "$agent" ] && continue
+            [[ "$agent" == "Agent" ]] && continue
+            [[ "$agent" == *"---"* ]] && continue
+            [[ "$agent" == *"(none)"* ]] && continue
+            if [ ! -f "agents/${agent}.md" ]; then
+              echo "::error::Agent file missing: agents/${agent}.md (mapped from command /${cmd})"
+              FAIL=1
+            fi
+            if [ ! -f "commands/${cmd}.md" ]; then
+              echo "::error::Command file missing: commands/${cmd}.md (mapped from agent ${agent})"
+              FAIL=1
+            fi
+          done < <(grep '|' CLAUDE.md | grep -v '^\s*#')
+          if [ "$FAIL" -eq 1 ]; then exit 1; fi
+          echo "Agent-command mapping is valid"
 
       - name: Verify scripts are executable
         run: |
@@ -75,3 +124,4 @@ jobs:
           echo "Skills:   $(ls -d skills/*/ | wc -l | tr -d ' ')"
           echo "Rules:    $(ls rules/*.md | wc -l | tr -d ' ')"
           echo "Hooks:    $(jq '[.hooks | to_entries[] | .value | length] | add' hooks/hooks.json)"
+          echo "Scripts:  $(ls hooks/scripts/*.js | wc -l | tr -d ' ')"
