@@ -398,14 +398,381 @@ export async function createOrder(prevState: unknown, formData: FormData) {
 | Errors | Console | Sentry / Vercel Error Tracking |
 | Alerting | N/A | PagerDuty / Opsgenie + Slack |
 
+## 8. OTel — Context Propagation
+
+Traces only work across service boundaries if the trace context (trace ID + span ID) travels with the request. OTel handles this via W3C `traceparent` headers automatically with auto-instrumentation, but you need to propagate manually in edge cases.
+
+```typescript
+// Propagating context through a fetch call manually
+import { context, propagation, trace } from "@opentelemetry/api";
+
+async function callDownstreamService(orderId: string) {
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+
+  // Inject current trace context into outgoing headers
+  propagation.inject(context.active(), headers);
+
+  const response = await fetch("https://payments-service/charge", {
+    method: "POST",
+    headers,
+    body: JSON.stringify({ orderId }),
+  });
+
+  return response.json();
+}
+```
+
+```typescript
+// Extracting context from an incoming request (e.g. Hono middleware)
+import { propagation, context, trace } from "@opentelemetry/api";
+
+app.use("*", async (c, next) => {
+  const extractedContext = propagation.extract(context.active(), {
+    get: (carrier, key) => c.req.header(key),
+    keys: () => Object.keys(c.req.raw.headers),
+  });
+
+  return context.with(extractedContext, () => next());
+});
+```
+
+### Baggage — Cross-Service Attributes
+
+Baggage lets you attach key-value pairs to a trace context so downstream services can read them without re-fetching from a database.
+
+```typescript
+import { propagation, context, baggageEntryMetadataFromString } from "@opentelemetry/api";
+
+// Attach at the entry point
+const baggage = propagation.createBaggage({
+  "user.id": { value: userId },
+  "user.plan": { value: "pro", metadata: baggageEntryMetadataFromString("cached") },
+});
+const ctx = propagation.setBaggage(context.active(), baggage);
+
+// Read anywhere downstream (same process or across services)
+const bag = propagation.getBaggage(context.active());
+const plan = bag?.getEntry("user.plan")?.value; // "pro"
+```
+
+## 9. OTel — Sampling Strategies
+
+Never trace 100% of requests in production — the volume is too high and most traces are uninteresting. Sample strategically.
+
+```typescript
+// instrumentation.ts — production-ready sampling config
+import { NodeSDK } from "@opentelemetry/sdk-node";
+import {
+  ParentBasedSampler,
+  TraceIdRatioBased,
+  AlwaysOnSampler,
+} from "@opentelemetry/sdk-trace-base";
+
+const sampler =
+  process.env.NODE_ENV === "production"
+    ? new ParentBasedSampler({
+        // Sample 10% of new traces; always follow parent's decision
+        root: new TraceIdRatioBased(0.1),
+      })
+    : new AlwaysOnSampler(); // 100% in dev
+
+const sdk = new NodeSDK({
+  sampler,
+  // ... rest of config
+});
+```
+
+### Tail-based sampling (recommended for production)
+
+Head-based sampling (above) decides at the start — you may drop a slow request. Tail-based sampling decides *after* the trace completes, keeping 100% of errors and slow requests:
+
+```typescript
+// Use OpenTelemetry Collector with tail sampling processor
+// otel-collector-config.yaml
+//
+// processors:
+//   tail_sampling:
+//     decision_wait: 10s
+//     policies:
+//       - name: keep-errors
+//         type: status_code
+//         status_code: { status_codes: [ERROR] }
+//       - name: keep-slow
+//         type: latency
+//         latency: { threshold_ms: 2000 }
+//       - name: sample-rest
+//         type: probabilistic
+//         probabilistic: { sampling_percentage: 5 }
+```
+
+| Strategy | Sample | Keep |
+|----------|--------|------|
+| Head ratio (10%) | 10% at start | Random — may drop errors |
+| Parent-based | Follows caller | Consistent across services |
+| Tail-based | After complete | 100% errors + slow, sample rest |
+
+## 10. OTel — Database Span Instrumentation
+
+Auto-instrumentation covers most cases, but explicit spans add business context that generic DB spans don't have.
+
+```typescript
+import { trace, SpanStatusCode } from "@opentelemetry/api";
+
+const tracer = trace.getTracer("db-layer");
+
+// Wrap Prisma calls with named spans
+export async function findUserWithOrders(userId: string) {
+  return tracer.startActiveSpan("db.user.findWithOrders", async (span) => {
+    span.setAttributes({
+      "db.system": "postgresql",
+      "db.operation": "SELECT",
+      "db.table": "users,orders",
+      "app.user_id": userId,
+    });
+
+    try {
+      const user = await prisma.user.findUnique({
+        where: { id: userId },
+        include: { orders: { take: 10, orderBy: { createdAt: "desc" } } },
+      });
+
+      span.setAttributes({
+        "app.result.found": user !== null,
+        "app.result.order_count": user?.orders.length ?? 0,
+      });
+      span.setStatus({ code: SpanStatusCode.OK });
+      return user;
+    } catch (err) {
+      span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+      span.recordException(err as Error);
+      throw err;
+    } finally {
+      span.end();
+    }
+  });
+}
+```
+
+### Prisma query events for slow query detection
+
+```typescript
+// src/db/client.ts
+import { PrismaClient } from "@prisma/client";
+import { logger } from "../lib/logger";
+
+const prisma = new PrismaClient({
+  log: [{ emit: "event", level: "query" }],
+});
+
+prisma.$on("query", (e) => {
+  if (e.duration > 200) {
+    logger.warn(
+      { durationMs: e.duration, query: e.query, params: e.params },
+      "Slow Prisma query"
+    );
+  }
+});
+
+export { prisma };
+```
+
+## 11. Hono Middleware — Logging + Tracing
+
+```typescript
+// src/middleware/observability.ts
+import type { MiddlewareHandler } from "hono";
+import { trace, SpanStatusCode, context, propagation } from "@opentelemetry/api";
+import { logger } from "../lib/logger";
+
+const tracer = trace.getTracer("hono-api");
+
+export const observabilityMiddleware: MiddlewareHandler = async (c, next) => {
+  const requestId = c.req.header("x-request-id") ?? crypto.randomUUID();
+  const log = logger.child({
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+  });
+
+  c.set("requestId", requestId);
+  c.set("log", log);
+
+  // Extract OTel context from incoming headers
+  const extractedCtx = propagation.extract(context.active(), {
+    get: (_, key) => c.req.header(key),
+    keys: () => [],
+  });
+
+  return context.with(extractedCtx, () =>
+    tracer.startActiveSpan(`${c.req.method} ${c.req.path}`, async (span) => {
+      span.setAttributes({
+        "http.method": c.req.method,
+        "http.route": c.req.path,
+        "http.request_id": requestId,
+      });
+
+      const start = Date.now();
+      log.info("Request started");
+
+      try {
+        await next();
+        const status = c.res.status;
+        span.setAttributes({ "http.status_code": status });
+        span.setStatus({ code: status >= 500 ? SpanStatusCode.ERROR : SpanStatusCode.OK });
+        log.info({ durationMs: Date.now() - start, status }, "Request completed");
+      } catch (err) {
+        span.setStatus({ code: SpanStatusCode.ERROR, message: String(err) });
+        span.recordException(err as Error);
+        log.error({ err, durationMs: Date.now() - start }, "Request failed");
+        throw err;
+      } finally {
+        c.header("x-request-id", requestId);
+        span.end();
+      }
+    })
+  );
+};
+```
+
+```typescript
+// src/app.ts — mount once, covers all routes
+import { observabilityMiddleware } from "./middleware/observability";
+
+app.use("*", observabilityMiddleware);
+```
+
+## 12. Health Check Endpoint
+
+A health check endpoint is the minimum viable observability surface — load balancers, uptime monitors, and `/pre-deploy` checks all use it.
+
+```typescript
+// src/routes/health.ts
+import { Hono } from "hono";
+import { prisma } from "../db/client";
+import { logger } from "../lib/logger";
+
+const health = new Hono();
+
+health.get("/health", async (c) => {
+  const checks: Record<string, "ok" | "fail"> = {};
+  let status = 200;
+
+  // Database
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    checks.database = "ok";
+  } catch (err) {
+    logger.error({ err }, "Health check: database failed");
+    checks.database = "fail";
+    status = 503;
+  }
+
+  // Add further checks (Redis, external APIs) as needed
+  // try { await redis.ping(); checks.redis = "ok"; } catch { ... }
+
+  return c.json(
+    {
+      status: status === 200 ? "ok" : "degraded",
+      checks,
+      uptime: process.uptime(),
+      timestamp: new Date().toISOString(),
+    },
+    status
+  );
+});
+
+export { health };
+```
+
+```typescript
+// Next.js equivalent — app/api/health/route.ts
+import { NextResponse } from "next/server";
+import { prisma } from "@/lib/db";
+
+export const dynamic = "force-dynamic";
+
+export async function GET() {
+  try {
+    await prisma.$queryRaw`SELECT 1`;
+    return NextResponse.json({ status: "ok", timestamp: new Date().toISOString() });
+  } catch {
+    return NextResponse.json({ status: "degraded", checks: { database: "fail" } }, { status: 503 });
+  }
+}
+```
+
+## 13. Local Dev Setup (Docker)
+
+Run the full observability stack locally with one command.
+
+```yaml
+# docker-compose.observability.yml
+services:
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4318:4318"     # OTLP HTTP receiver
+    environment:
+      COLLECTOR_OTLP_ENABLED: "true"
+
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml
+
+  grafana:
+    image: grafana/grafana:latest
+    ports:
+      - "3333:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: "admin"
+    depends_on:
+      - prometheus
+```
+
+```yaml
+# prometheus.yml
+global:
+  scrape_interval: 15s
+scrape_configs:
+  - job_name: "app"
+    static_configs:
+      - targets: ["host.docker.internal:3001"]  # your app's metrics endpoint
+```
+
+```bash
+# Start observability stack
+docker compose -f docker-compose.observability.yml up -d
+
+# Access
+# Jaeger traces:  http://localhost:16686
+# Prometheus:     http://localhost:9090
+# Grafana:        http://localhost:3333  (admin/admin)
+```
+
+Point your app at the local Jaeger collector:
+
+```bash
+# .env.local
+OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318/v1/traces
+OTEL_SERVICE_NAME=my-app
+```
+
 ## Setup Checklist
 
 - [ ] Structured logging with Pino (not console.log)
 - [ ] Request correlation IDs propagated through middleware
-- [ ] OpenTelemetry instrumentation enabled
+- [ ] OpenTelemetry instrumentation enabled with sampling strategy
+- [ ] Context propagation working across service boundaries (W3C traceparent)
+- [ ] Database spans instrumented (slow query threshold + named spans)
 - [ ] Error tracking configured (Sentry or equivalent)
+- [ ] Health check endpoint at `/health` (DB + dependencies)
 - [ ] Key business metrics tracked (orders, signups, payments)
 - [ ] P95 latency and error rate alerts configured
 - [ ] Log sanitization — no PII or secrets in logs
 - [ ] Log levels appropriate (info in prod, debug in dev)
 - [ ] Dashboard with request rate, error rate, latency, DB pool
+- [ ] Local dev Docker stack for Jaeger + Prometheus (optional but recommended)
