@@ -7,7 +7,7 @@ A complete Claude Code development system for TypeScript, React, and Next.js pro
 ## Structure
 
 - `agents/` — 8 specialized agents (markdown with YAML frontmatter), each with "When to Engage" and "When NOT to Engage" sections
-- `commands/` — 14 slash commands (markdown with description frontmatter)
+- `commands/` — 15 slash commands (markdown with description frontmatter)
 - `hooks/` — 10 safety hooks (JSON) + documentation + test suite (`hooks/tests/`)
 - `skills/` — 6 deep reference patterns for agents to pull from
 - `.github/workflows/ci.yml` — CI pipeline template (maps to `/healthcheck`)
