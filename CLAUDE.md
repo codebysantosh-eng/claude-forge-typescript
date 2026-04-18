@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-A complete Claude Code development system for TypeScript, React, and Next.js projects — 8 agents, 14 commands, 10 hooks, 6 skills, and 5 rules covering the full lifecycle from research to production incident response.
+A complete Claude Code development system for TypeScript, React, and Next.js projects — 8 agents, 15 commands, 10 hooks, 6 skills, and 5 rules covering the full lifecycle from research to production incident response.
 
 ## Structure
 
@@ -31,6 +31,7 @@ A complete Claude Code development system for TypeScript, React, and Next.js pro
 | *(none)* | `/add-tests` | Retroactive test coverage |
 | *(none)* | `/learn` | Extract patterns |
 | *(none)* | `/healthcheck` | Verification suite |
+| *(none)* | `/onboard` | Interactive onboarding |
 | *(none)* | `/incident` | Production incident response |
 | *(none)* | `/pre-deploy` | Deploy readiness |
 
