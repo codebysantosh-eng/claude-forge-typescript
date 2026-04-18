@@ -6,15 +6,20 @@ set -euo pipefail
 # Run: ./hooks/tests/run-tests.sh
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-HOOKS_FILE="${SCRIPT_DIR}/../hooks.json"
+HOOKS_SCRIPTS_DIR="${SCRIPT_DIR}/../scripts"
 PASS=0
 FAIL=0
 TOTAL=0
 
 GREEN='\033[0;32m'
 RED='\033[0;31m'
-YELLOW='\033[1;33m'
 NC='\033[0m'
+
+run_hook() {
+  local hook_id="$1"
+  local input="$2"
+  echo "$input" | node "${HOOKS_SCRIPTS_DIR}/${hook_id}.js" 2>/dev/null || true
+}
 
 assert_blocks() {
   local test_name="$1"
@@ -22,13 +27,8 @@ assert_blocks() {
   local input="$3"
   TOTAL=$((TOTAL + 1))
 
-  local cmd
-  cmd=$(jq -r --arg id "$hook_id" '
-    .hooks | to_entries[] | .value[] | select(.id == $id) | .hooks[0].command
-  ' "$HOOKS_FILE")
-
   local result
-  result=$(echo "$input" | eval "$cmd" 2>/dev/null || true)
+  result=$(run_hook "$hook_id" "$input")
 
   if echo "$result" | grep -q '"decision":"block"'; then
     echo -e "  ${GREEN}PASS${NC} $test_name"
@@ -45,13 +45,8 @@ assert_warns() {
   local input="$3"
   TOTAL=$((TOTAL + 1))
 
-  local cmd
-  cmd=$(jq -r --arg id "$hook_id" '
-    .hooks | to_entries[] | .value[] | select(.id == $id) | .hooks[0].command
-  ' "$HOOKS_FILE")
-
   local result
-  result=$(echo "$input" | eval "$cmd" 2>/dev/null || true)
+  result=$(run_hook "$hook_id" "$input")
 
   if echo "$result" | grep -q '"message"'; then
     echo -e "  ${GREEN}PASS${NC} $test_name"
@@ -68,13 +63,8 @@ assert_passes() {
   local input="$3"
   TOTAL=$((TOTAL + 1))
 
-  local cmd
-  cmd=$(jq -r --arg id "$hook_id" '
-    .hooks | to_entries[] | .value[] | select(.id == $id) | .hooks[0].command
-  ' "$HOOKS_FILE")
-
   local result
-  result=$(echo "$input" | eval "$cmd" 2>/dev/null || true)
+  result=$(run_hook "$hook_id" "$input")
 
   if [ -z "$result" ]; then
     echo -e "  ${GREEN}PASS${NC} $test_name"
@@ -182,7 +172,6 @@ assert_passes "no warning on normal source file" \
 # ─── large-file-warn ───
 echo ""
 echo "large-file-warn:"
-# Create a temp file >800 lines for this test
 TMPFILE=$(mktemp /tmp/forge-test-XXXXXX.ts)
 for i in $(seq 1 850); do echo "const line${i} = ${i};" >> "$TMPFILE"; done
 
@@ -192,7 +181,6 @@ assert_warns "warns on file >800 lines" \
 
 rm -f "$TMPFILE"
 
-# Create a small file
 TMPFILE2=$(mktemp /tmp/forge-test-XXXXXX.ts)
 echo "const x = 1;" > "$TMPFILE2"
 
@@ -201,6 +189,25 @@ assert_passes "no warning on small file" \
   "{\"tool_input\":{\"file_path\":\"${TMPFILE2}\"}}"
 
 rm -f "$TMPFILE2"
+
+# ─── coverage-threshold-warn ───
+echo ""
+echo "coverage-threshold-warn:"
+assert_warns "warns when overall coverage is below 80%" \
+  "coverage-threshold-warn" \
+  '{"tool_input":{"command":"npm test -- --coverage"},"tool_output":{"stdout":"All files | 65.00 | 70.00 | 60.00 | 65.00 |","exit_code":0}}'
+
+assert_warns "warns when coverage is exactly at boundary (79%)" \
+  "coverage-threshold-warn" \
+  '{"tool_input":{"command":"jest --coverage"},"tool_output":{"stdout":"All files | 79.00 | 75.00 | 79.00 | 79.00 |","exit_code":0}}'
+
+assert_passes "no warning when coverage meets target (80%)" \
+  "coverage-threshold-warn" \
+  '{"tool_input":{"command":"npm test -- --coverage"},"tool_output":{"stdout":"All files | 80.00 | 80.00 | 80.00 | 80.00 |","exit_code":0}}'
+
+assert_passes "no warning for non-coverage commands" \
+  "coverage-threshold-warn" \
+  '{"tool_input":{"command":"npm run build"},"tool_output":{"stdout":"Build successful","exit_code":0}}'
 
 # ─── Summary ───
 echo ""

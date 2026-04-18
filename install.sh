@@ -140,4 +140,5 @@ if [ "$MODE" = "symlink" ]; then
   echo "  Upgrade anytime: cd ${SCRIPT_DIR} && git pull"
 fi
 echo "  Restart Claude Code to pick up changes."
+echo "  Run /onboard in Claude Code for an interactive walkthrough."
 echo ""

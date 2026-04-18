@@ -2,7 +2,7 @@
 
 The complete Claude Code development system for TypeScript, React, and Next.js projects.
 
-8 agents, 14 commands, 10 hooks, 6 skills, 5 rules — wired together with handoffs. Built for: **TypeScript, React, Next.js (App Router), Prisma, Tailwind, Vitest/Jest, Playwright.**
+8 agents, 15 commands, 11 hooks, 6 skills, 5 rules — wired together with handoffs. Built for: **TypeScript, React, Next.js (App Router), Prisma, Tailwind, Vitest/Jest, Playwright.**
 
 ## Agents
 
@@ -33,6 +33,7 @@ The complete Claude Code development system for TypeScript, React, and Next.js p
 | `/add-tests` | Retroactively add missing test coverage | *(direct)* |
 | `/learn` | Extract reusable patterns from current session | *(direct)* |
 | `/healthcheck` | Build + types + lint + format + tests + secrets scan | *(direct)* |
+| `/onboard` | Interactive onboarding — stack detection + first-step recommendation | *(direct)* |
 | `/incident` | Production incident response — triage, diagnose, mitigate | *(direct)* |
 | `/pre-deploy` | Deployment readiness checklist | *(direct)* |
 
@@ -103,6 +104,7 @@ Not every task needs all phases. A bug fix skips THINK. A library evaluation ski
 | build-fail-hint | Post | Suggests `/fix` on build failure |
 | large-file-warn | Post | Warns when file exceeds 800 lines |
 | env-gitignore-guard | Post | Warns if .env file created without .gitignore entry |
+| coverage-threshold-warn | Post | Warns when test coverage drops below 80% |
 | test-reminder | Stop | Reminds to add tests if only source files changed |
 
 ## Skills (Deep Reference)

@@ -60,9 +60,26 @@ fi
 SETTINGS_FILE="${TARGET}/settings.json"
 if [ -f "$SETTINGS_FILE" ] && command -v jq &>/dev/null; then
   if jq -e '.hooks' "$SETTINGS_FILE" &>/dev/null; then
-    jq 'del(.hooks)' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    HOOKS_SOURCE="${SCRIPT_DIR}/hooks/hooks.json"
+    if [ -f "$HOOKS_SOURCE" ]; then
+      # Remove only Forge hooks (by ID) — preserves user's custom hooks
+      jq --slurpfile forge "$HOOKS_SOURCE" '
+        ($forge[0].hooks | to_entries | map(.value[].id) | flatten) as $forgeIds |
+        .hooks |= with_entries(
+          .value |= [.[] | select(.id as $id | $forgeIds | index($id) | not)]
+        ) |
+        # Remove empty hook phase arrays
+        .hooks |= with_entries(select(.value | length > 0)) |
+        # Remove hooks key entirely if empty
+        if (.hooks | length) == 0 then del(.hooks) else . end
+      ' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+    else
+      # Fallback: remove all hooks (hooks.json not found)
+      jq 'del(.hooks)' "$SETTINGS_FILE" > "${SETTINGS_FILE}.tmp"
+    fi
     mv "${SETTINGS_FILE}.tmp" "$SETTINGS_FILE"
-    echo -e "  ${GREEN}✓${NC} Removed hooks from settings.json"
+    echo -e "  ${GREEN}✓${NC} Removed forge hooks from settings.json (custom hooks preserved)"
 
     # Remove settings.json if it's now empty (only has {})
     if [ "$(jq 'length' "$SETTINGS_FILE")" -eq 0 ]; then
