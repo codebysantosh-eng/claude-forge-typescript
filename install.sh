@@ -91,15 +91,6 @@ for dir in agents commands skills rules; do
   echo -e "  ${GREEN}✓${NC} ${dir} (${count} files)"
 done
 
-# Rebuild hooks.json from scripts to ensure it's current
-if [ -f "${SCRIPT_DIR}/hooks/build.js" ]; then
-  if command -v node &>/dev/null; then
-    node "${SCRIPT_DIR}/hooks/build.js"
-  else
-    echo -e "  ${YELLOW}⚠${NC} node not found — using committed hooks.json (may be stale)"
-  fi
-fi
-
 # Auto-merge hooks into settings.json
 echo ""
 SETTINGS_FILE="${TARGET}/settings.json"
